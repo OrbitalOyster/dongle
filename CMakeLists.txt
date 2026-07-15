@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.50)
-project(dongle LANGUAGES C)
+project(dongle LANGUAGES CXX)
 
 add_executable(${PROJECT_NAME})
 
-set(CMAKE_C_STANDARD 23)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # GLFW
 include(FetchContent)
@@ -16,9 +16,9 @@ FetchContent_Declare(
   GIT_TAG master
 )
 FetchContent_MakeAvailable(glfw)
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw)
+target_link_libraries(${PROJECT_NAME} glfw)
 
 include_directories(src/include)
 target_sources(${PROJECT_NAME} PRIVATE
-    src/main.c
+    src/main.cpp
 )
