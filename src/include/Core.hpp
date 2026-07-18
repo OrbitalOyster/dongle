@@ -2,6 +2,7 @@
 #define DONGLE CORE_HPP
 
 #include <GLFW/glfw3.h>
+#include <vulkan/vulkan_core.h>
 
 class Core {
 private:

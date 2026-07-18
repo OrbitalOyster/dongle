@@ -10,11 +10,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Check if Vulkan SDK is installed
 if (NOT IS_DIRECTORY $ENV{VULKAN_SDK})
   message(FATAL_ERROR "Vulkan SDK not found")
-else()
-  message(STATUS "Vulkan SDK found in $ENV{VULKAN_SDK}")
-  # Include everything from Vulkan SDK
-  include_directories(SYSTEM $ENV{VULKAN_SDK}/include)
 endif()
+
+message(STATUS "Vulkan SDK found in $ENV{VULKAN_SDK}")
+# Include everything from Vulkan SDK
+include_directories(SYSTEM $ENV{VULKAN_SDK}/include)
+find_package(Vulkan REQUIRED)
+target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
 
 # GLFW
 include(FetchContent)
