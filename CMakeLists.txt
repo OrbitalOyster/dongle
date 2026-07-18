@@ -7,6 +7,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Check if Vulkan SDK is installed
+if (NOT IS_DIRECTORY $ENV{VULKAN_SDK})
+  message(FATAL_ERROR "Vulkan SDK not found")
+else()
+  message(STATUS "Vulkan SDK found in $ENV{VULKAN_SDK}")
+  # Include everything from Vulkan SDK
+  include_directories(SYSTEM $ENV{VULKAN_SDK}/include)
+endif()
+
 # GLFW
 include(FetchContent)
 FetchContent_Declare(
@@ -18,7 +27,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glfw)
 target_link_libraries(${PROJECT_NAME} glfw)
 
+# Main
 include_directories(src/include)
 target_sources(${PROJECT_NAME} PRIVATE
     src/main.cpp
+    src/Core.cpp
 )
