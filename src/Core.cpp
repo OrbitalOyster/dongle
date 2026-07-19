@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 
@@ -41,7 +42,6 @@ Core::Core(int window_width, int window_height) {
       .enabledExtensionCount = glfw_extension_count,
       .ppEnabledExtensionNames = glfw_extension_names,
   };
-  VkInstance instance{VK_NULL_HANDLE};
   if (vkCreateInstance(&instance_create_info, VK_NULL_HANDLE, &instance) !=
       VK_SUCCESS) {
     throw std::runtime_error("Unable to create Vulkan instance");
@@ -58,7 +58,7 @@ Core::Core(int window_width, int window_height) {
     throw std::runtime_error("Unable to enumerate physical devices");
   INFOF("Physical devices: %d", device_count);
   /* Find discrete GPU */
-  uint32_t selected_physical_device{0};
+  uint32_t selected_physical_device_index{0};
   if (device_count > 1)
     for (uint32_t i = 0; i < device_count; i++) {
       VkPhysicalDeviceProperties2 device_properties{
@@ -69,16 +69,16 @@ Core::Core(int window_width, int window_height) {
       INFOF("\t[%d] %s, discrete: %s", i,
             device_properties.properties.deviceName, discrete ? "yes" : "no");
       if (discrete)
-        selected_physical_device = i;
+        selected_physical_device_index = i;
     }
+  selected_physical_device = devices[selected_physical_device_index];
   /* Find queue family */
   uint32_t queue_family_count{0};
-  vkGetPhysicalDeviceQueueFamilyProperties(devices[selected_physical_device],
+  vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device,
                                            &queue_family_count, nullptr);
   std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-  vkGetPhysicalDeviceQueueFamilyProperties(devices[selected_physical_device],
-                                           &queue_family_count,
-                                           queue_families.data());
+  vkGetPhysicalDeviceQueueFamilyProperties(
+      selected_physical_device, &queue_family_count, queue_families.data());
   INFOF("Queue families: %d", queue_family_count);
   uint32_t selected_queue_family{0};
   for (size_t i = 0; i < queue_families.size(); i++) {
@@ -122,13 +122,12 @@ Core::Core(int window_width, int window_height) {
       .enabledExtensionCount = static_cast<uint32_t>(device_extensions.size()),
       .ppEnabledExtensionNames = device_extensions.data(),
       .pEnabledFeatures = &vulkan_10_features};
-  VkDevice device{VK_NULL_HANDLE};
-  if (vkCreateDevice(devices[selected_physical_device], &device_create_info,
-                     nullptr, &device) != VK_SUCCESS)
+  if (vkCreateDevice(devices[selected_physical_device_index],
+                     &device_create_info, nullptr, &device) != VK_SUCCESS)
     throw std::runtime_error("Unable to create logical device");
   INFO("Created logical device")
 
-  VkQueue queue{VK_NULL_HANDLE};
+  /* Device queue */
   vkGetDeviceQueue(device, selected_queue_family, 0, &queue);
 
   /* Set up VMA */
@@ -137,7 +136,7 @@ Core::Core(int window_width, int window_height) {
                                  .vkCreateImage = vkCreateImage};
   VmaAllocatorCreateInfo allocator_create_info{
       .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
-      .physicalDevice = devices[selected_physical_device],
+      .physicalDevice = devices[selected_physical_device_index],
       .device = device,
       .pVulkanFunctions = &vkFunctions,
       .instance = instance};
@@ -151,9 +150,93 @@ Core::Core(int window_width, int window_height) {
     throw std::runtime_error("Unable to create Vulkan surface");
   /* Verify surface support */
   VkBool32 supported{VK_FALSE};
-  vkGetPhysicalDeviceSurfaceSupportKHR(devices[selected_physical_device],
+  vkGetPhysicalDeviceSurfaceSupportKHR(devices[selected_physical_device_index],
                                        selected_queue_family, surface,
                                        &supported);
+
+  VkSurfaceCapabilitiesKHR surface_capabilities;
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(selected_physical_device, surface,
+                                            &surface_capabilities);
+
+  /* Swapchain extent */
+  VkExtent2D swapchainExtent{surface_capabilities.currentExtent};
+  if (surface_capabilities.currentExtent.width == 0xFFFFFFFF) {
+    swapchainExtent = {.width = static_cast<uint32_t>(window_width),
+                       .height = static_cast<uint32_t>(window_width)};
+  }
+  const VkFormat image_format{VK_FORMAT_B8G8R8A8_SRGB};
+  VkSwapchainCreateInfoKHR swapchain_create_info{
+      .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+      .surface = surface,
+      .minImageCount = surface_capabilities.minImageCount,
+      .imageFormat = image_format,
+      .imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+      .imageExtent{.width = swapchainExtent.width,
+                   .height = swapchainExtent.height},
+      .imageArrayLayers = 1,
+      .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+      .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+      .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+      .presentMode = VK_PRESENT_MODE_FIFO_KHR};
+  VkSwapchainKHR swapchain{VK_NULL_HANDLE};
+  if (vkCreateSwapchainKHR(device, &swapchain_create_info, VK_NULL_HANDLE,
+                           &swapchain) != VK_SUCCESS)
+    throw std::runtime_error("Unable to create swapchain");
+  INFO("Created swapchain")
+  /* Swapchain images */
+  uint32_t image_count{0};
+  if (vkGetSwapchainImagesKHR(device, swapchain, &image_count,
+                              VK_NULL_HANDLE) != VK_SUCCESS)
+    throw std::runtime_error("Unable to get swapchain images");
+  INFOF("Created %d swapchain images", image_count)
+  std::vector<VkImage> swapchain_images;
+  swapchain_images.resize(image_count);
+  std::vector<VkImageView> swapchain_image_views;
+  if (vkGetSwapchainImagesKHR(device, swapchain, &image_count,
+                              swapchain_images.data()) != VK_SUCCESS)
+    throw std::runtime_error("Unable to get swapchain image views");
+  swapchain_image_views.resize(image_count);
+  INFOF("Created %d swapchain image views", image_count)
+  /* Depth */
+  std::vector<VkFormat> depth_format_list{VK_FORMAT_D32_SFLOAT_S8_UINT,
+                                          VK_FORMAT_D24_UNORM_S8_UINT};
+  VkFormat depth_format{VK_FORMAT_UNDEFINED};
+  for (VkFormat &format : depth_format_list) {
+    VkFormatProperties2 format_properties{
+        .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2};
+    vkGetPhysicalDeviceFormatProperties2(selected_physical_device, format,
+                                         &format_properties);
+    if (format_properties.formatProperties.optimalTilingFeatures &
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+      depth_format = format;
+      break;
+    }
+  }
+  VkImageCreateInfo depth_image_create_info{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .imageType = VK_IMAGE_TYPE_2D,
+      .format = depth_format,
+      .extent{.width = static_cast<uint32_t>(window_width),
+              .height = static_cast<uint32_t>(window_height),
+              .depth = 1},
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+  };
+
+  VmaAllocationCreateInfo allocCI{
+      .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+      .usage = VMA_MEMORY_USAGE_AUTO};
+  VkImage depth_image;
+  VmaAllocation depthImageAllocation;
+  if (vmaCreateImage(allocator, &depth_image_create_info, &allocCI,
+                     &depth_image, &depthImageAllocation,
+                     VK_NULL_HANDLE) != VK_SUCCESS)
+    throw std::runtime_error("Unable to create depth image");
+  INFO("Created depth image")
 }
 
 void Core::run() {

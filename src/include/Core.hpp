@@ -7,7 +7,11 @@
 
 class Core {
 private:
-  GLFWwindow *window;
+  GLFWwindow *window = nullptr;
+  VkInstance instance{VK_NULL_HANDLE};
+  VkPhysicalDevice selected_physical_device{VK_NULL_HANDLE};
+  VkDevice device{VK_NULL_HANDLE};
+  VkQueue queue{VK_NULL_HANDLE};
 
 public:
   Core(int window_width, int window_height);
