@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.50)
 project(dongle LANGUAGES CXX)
-
 add_executable(${PROJECT_NAME})
 
 set(CMAKE_CXX_STANDARD 17)
@@ -12,11 +11,11 @@ if (NOT IS_DIRECTORY $ENV{VULKAN_SDK})
   message(FATAL_ERROR "Vulkan SDK not found")
 endif()
 
-message(STATUS "Vulkan SDK found in $ENV{VULKAN_SDK}")
 # Include everything from Vulkan SDK
 include_directories(SYSTEM $ENV{VULKAN_SDK}/include)
+
+# Actual Vulkan core
 find_package(Vulkan REQUIRED)
-target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
 
 # GLFW
 include(FetchContent)
@@ -27,7 +26,8 @@ FetchContent_Declare(
   GIT_TAG master
 )
 FetchContent_MakeAvailable(glfw)
-target_link_libraries(${PROJECT_NAME} glfw)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE glfw Vulkan::Vulkan)
 
 # Main
 include_directories(src/include)
