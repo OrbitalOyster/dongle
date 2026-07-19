@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+include(FetchContent)
+
 # Check if Vulkan SDK is installed
 if (NOT IS_DIRECTORY $ENV{VULKAN_SDK})
   message(FATAL_ERROR "Vulkan SDK not found")
@@ -18,7 +20,6 @@ include_directories(SYSTEM $ENV{VULKAN_SDK}/include)
 find_package(Vulkan REQUIRED)
 
 # GLFW
-include(FetchContent)
 FetchContent_Declare(
   glfw
   GIT_REPOSITORY
@@ -27,7 +28,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glfw)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw Vulkan::Vulkan)
+FetchContent_Declare(
+  tinyobjloader
+  GIT_REPOSITORY
+  https://github.com/tinyobjloader/tinyobjloader.git
+  GIT_TAG release
+)
+FetchContent_MakeAvailable(tinyobjloader)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE glfw Vulkan::Vulkan tinyobjloader)
 
 # Main
 include_directories(src/include)

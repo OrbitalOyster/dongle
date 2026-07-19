@@ -8,6 +8,8 @@
 #include <vulkan/vulkan_core.h>
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
 
 Core::Core(int window_width, int window_height) {
   /* Init GLFW */
@@ -237,6 +239,29 @@ Core::Core(int window_width, int window_height) {
                      VK_NULL_HANDLE) != VK_SUCCESS)
     throw std::runtime_error("Unable to create depth image");
   INFO("Created depth image")
+
+  VkImageViewCreateInfo depth_view_create_info{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image = depth_image,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = depth_format,
+      .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                        .levelCount = 1,
+                        .layerCount = 1}};
+  VkImageView depth_image_view;
+  if (vkCreateImageView(device, &depth_view_create_info, nullptr,
+                        &depth_image_view) != VK_SUCCESS)
+    throw std::runtime_error("Unable to create depth image view");
+  INFO("Created depth image view")
+
+  /* Mesh */
+  tinyobj::attrib_t attrib;
+  std::vector<tinyobj::shape_t> shapes;
+  std::vector<tinyobj::material_t> materials;
+  if (!tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr,
+                        "assets/suzanne.obj"))
+    throw std::runtime_error("Unable to load mesh");
+  INFO("Loaded mesh")
 }
 
 void Core::run() {
