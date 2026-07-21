@@ -1,5 +1,6 @@
 #include "Core.hpp"
 #include "debug.hpp"
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -10,6 +11,13 @@
 #include <vma/vk_mem_alloc.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
+
+struct ShaderDataBuffer {
+  VmaAllocation allocation{VK_NULL_HANDLE};
+  VmaAllocationInfo allocationInfo{};
+  VkBuffer buffer{VK_NULL_HANDLE};
+  VkDeviceAddress deviceAddress{};
+};
 
 Core::Core(int window_width, int window_height) {
   /* Init GLFW */
@@ -262,6 +270,75 @@ Core::Core(int window_width, int window_height) {
                         "assets/suzanne.obj"))
     throw std::runtime_error("Unable to load mesh");
   INFO("Loaded mesh")
+
+  const VkDeviceSize indexCount{shapes[0].mesh.indices.size()};
+  std::vector<Vertex> vertices{};
+  std::vector<uint16_t> indices{};
+  // Load vertex and index data
+  for (auto &index : shapes[0].mesh.indices) {
+    Vertex v{.pos = {attrib.vertices[index.vertex_index * 3],
+                     -attrib.vertices[index.vertex_index * 3 + 1],
+                     attrib.vertices[index.vertex_index * 3 + 2]},
+             .normal = {attrib.normals[index.normal_index * 3],
+                        -attrib.normals[index.normal_index * 3 + 1],
+                        attrib.normals[index.normal_index * 3 + 2]},
+             .uv = {attrib.texcoords[index.texcoord_index * 2],
+                    1.0 - attrib.texcoords[index.texcoord_index * 2 + 1]}};
+    vertices.push_back(v);
+    indices.push_back(indices.size());
+  }
+  /* GPU buffers */
+  VkDeviceSize vBufSize{sizeof(Vertex) * vertices.size()};
+  VkDeviceSize iBufSize{sizeof(uint16_t) * indices.size()};
+  VkBufferCreateInfo bufferCI{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                              .size = vBufSize + iBufSize,
+                              .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                                       VK_BUFFER_USAGE_INDEX_BUFFER_BIT};
+  /* VMA */
+  VmaAllocationCreateInfo vBufferAllocCI{
+      .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+               VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+               VMA_ALLOCATION_CREATE_MAPPED_BIT,
+      .usage = VMA_MEMORY_USAGE_AUTO};
+  VmaAllocation vBufferAllocation{VK_NULL_HANDLE};
+  VkBuffer vBuffer{VK_NULL_HANDLE};
+  VmaAllocationInfo vBufferAllocInfo{};
+  if (vmaCreateBuffer(allocator, &bufferCI, &vBufferAllocCI, &vBuffer,
+                      &vBufferAllocation, &vBufferAllocInfo) != VK_SUCCESS)
+    throw std::runtime_error("Unable to allocate mesh buffer");
+  INFO("Allocated mesh buffer");
+  /* Directly copy data into VRAM */
+  memcpy(vBufferAllocInfo.pMappedData, vertices.data(), vBufSize);
+  memcpy(((char *)vBufferAllocInfo.pMappedData) + vBufSize, indices.data(),
+         iBufSize);
+
+  constexpr uint32_t maxFramesInFlight{2};
+  std::array<ShaderDataBuffer, maxFramesInFlight> shaderDataBuffers;
+  std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
+
+  /* Alocate shader data */
+  ShaderData shaderData{};
+  for (auto i = 0; i < maxFramesInFlight; i++) {
+    VkBufferCreateInfo uBufferCI{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                 .size = sizeof(ShaderData),
+                                 .usage =
+                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT};
+    VmaAllocationCreateInfo uBufferAllocCI{
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO};
+    if (vmaCreateBuffer(allocator, &uBufferCI, &uBufferAllocCI,
+                        &shaderDataBuffers[i].buffer,
+                        &shaderDataBuffers[i].allocation,
+                        &shaderDataBuffers[i].allocationInfo) != VK_SUCCESS)
+      throw std::runtime_error("Unable to allocate shader data buffers");
+    VkBufferDeviceAddressInfo uBufferBdaInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .buffer = shaderDataBuffers[i].buffer};
+    shaderDataBuffers[i].deviceAddress =
+        vkGetBufferDeviceAddress(device, &uBufferBdaInfo);
+  }
 }
 
 void Core::run() {
